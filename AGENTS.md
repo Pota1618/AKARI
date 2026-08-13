@@ -8,8 +8,9 @@
 AKARI は **Animation Kernel for Algorithmic Rendering & Illustration** の略で、Vulkan を基盤にした、
 数学・アルゴリズム解説向けのインタラクティブなアニメーションエンジンを目指します。
 
-現在は依存関係を検証する最小 CMake target だけがあり、エンジンと CLI は未実装です。存在しないコマンドを利用可能と
-説明・実行しないでください。実装でコマンドを追加したら、本ファイルと利用者向け文書も更新してください。
+現在は M1 の決定的な2D scene evaluation、playback、Vulkan 1.3 renderer、GLFW preview、CPU/GPU smoke test が
+実装されています。PNG・動画出力、CLI、自動再ビルド、状態復元は未実装です。存在しないコマンドを利用可能と説明・実行
+しないでください。実装でコマンドを追加したら、本ファイルと利用者向け文書も更新してください。
 
 ## Product Contract
 
