@@ -27,13 +27,9 @@ cmake --preset windows-debug
 cmake --build --preset windows-debug
 ```
 
-主な実行ファイルは次の場所に生成されます。
+利用者向けの実行ファイルは次の場所に生成されます。
 
 ```text
-build/windows-debug/Debug/akari_dependency_smoke.exe
-build/windows-debug/Debug/akari_core_tests.exe
-build/windows-debug/Debug/akari_vulkan_smoke.exe
-build/windows-debug/Debug/akari_offscreen_smoke.exe
 build/windows-debug/Debug/akari_preview.exe
 build/windows-debug/Debug/akari_capture.exe
 ```
@@ -51,6 +47,16 @@ ctest --preset windows-debug
 
 テストには、GPU を必要としない scene/playback の単体テストと、非表示 GLFW window に1 frameを描画する
 Vulkan validation smoke test が含まれます。
+
+## Source layout
+
+- `include/akari/`: engineとapplicationが共有するC++ interface
+- `src/core/`、`src/image/`、`src/vulkan/`: engine libraryの実装
+- `src/preview/`、`src/capture/`: 利用者向けapplication entry point
+- `tests/`: unit test、dependency smoke test、Vulkan smoke test、およびtest target用CMake定義
+
+テスト専用コードは`tests/`に限定し、production libraryやapplicationのsource listへ含めません。通常の成果物だけを
+構成したい場合は、configure時に`-DBUILD_TESTING=OFF`を指定できます。
 
 ## M2: Vulkan Backend Foundation & Offscreen Capture
 

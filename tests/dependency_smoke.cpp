@@ -11,4 +11,3 @@ int main()
     std::cout << "GLM vector: " << vector.x << ", " << vector.y << ", " << vector.z << '\n';
     return 0;
 }
-
