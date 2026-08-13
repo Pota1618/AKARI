@@ -3,7 +3,8 @@ AKARI は **A**nimation **K**ernel for **A**lgorithmic **R**endering & **I**llus
 
 ## 開発環境
 
-現在は Windows、Visual Studio 2022、CMake、Vulkan SDK 1.3 以上を使用します。GLFW 3.4 と GLM 1.0.3 は
+現在は Windows、Visual Studio 2022、CMake、Vulkan SDK 1.3 以上を使用します。GLFW 3.4、GLM 1.0.3、
+Vulkan Memory Allocator 3.3.0、stb_image_write 1.16 は
 CMake の `FetchContent` が初回 configure 時に取得するため、Ninja、vcpkg、手動インストールは不要です。
 Vulkan SDK は [LunarG](https://vulkan.lunarg.com/) から別途インストールし、`VULKAN_SDK` を設定してください。
 
@@ -15,7 +16,7 @@ Vulkan SDK は [LunarG](https://vulkan.lunarg.com/) から別途インストー�
 cmake --preset windows-debug
 ```
 
-初回 configure にはインターネット接続が必要です。GLFW と GLM、および生成された Visual Studio project は
+初回 configure にはインターネット接続が必要です。取得した依存と生成された Visual Studio project は
 `build/windows-debug/` 以下に保存されます。
 
 ### Build
@@ -32,7 +33,9 @@ cmake --build --preset windows-debug
 build/windows-debug/Debug/akari_dependency_smoke.exe
 build/windows-debug/Debug/akari_core_tests.exe
 build/windows-debug/Debug/akari_vulkan_smoke.exe
+build/windows-debug/Debug/akari_offscreen_smoke.exe
 build/windows-debug/Debug/akari_preview.exe
+build/windows-debug/Debug/akari_capture.exe
 ```
 
 ### Test
@@ -48,6 +51,35 @@ ctest --preset windows-debug
 
 テストには、GPU を必要としない scene/playback の単体テストと、非表示 GLFW window に1 frameを描画する
 Vulkan validation smoke test が含まれます。
+
+## M2: Vulkan Backend Foundation & Offscreen Capture
+
+Vulkan backendはdevice/context、VMA資源管理、frame scheduling、scene draw pass、swapchain/offscreen targetに分離されています。
+previewとoffscreen captureは同じ`SceneFrame2D`、camera計算、shader、draw passを使用します。geometryはframeごとのstaging bufferから
+device-local bufferへ転送され、容量不足時には安全に自動拡張されます。
+
+ウィンドウを作成せず、デモシーンの任意時刻をPNGへ保存できます。
+
+```powershell
+./build/windows-debug/Debug/akari_capture.exe --output demo.png --time 1.57079632679
+```
+
+利用可能な引数は次のとおりです。
+
+```text
+akari_capture --output <path.png>
+              [--time <seconds>]
+              [--width <pixels>]
+              [--height <pixels>]
+```
+
+既定値は`time=0`、`width=800`、`height=600`です。timeは`[0, 2π]`へclampされます。出力は左上原点の
+unpremultiplied sRGB RGBA8 PNGです。PNG出力は単一frameの同期処理であり、frame連番と動画encodingは未実装です。
+
+VMAはbuffer/image allocationとpersistent mappingのために採用しています。個別`VkDeviceMemory` allocationや自前suballocatorより
+実績のある移植可能な資源管理を優先したものです。stb_image_writeはPNG encoderだけを小さく隔離するために採用しています。
+Windows固有のWICは移植性がなく、より大きな画像処理libraryはM2の用途に過剰なため採用していません。
+VMAはMIT、stb_image_writeはpublic domainまたはMITのdual licenseです。固定したrevisionは`CMakeLists.txt`を参照してください。
 
 ## M1: Deterministic Vulkan Preview
 

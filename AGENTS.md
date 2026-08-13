@@ -8,8 +8,9 @@
 AKARI は **Animation Kernel for Algorithmic Rendering & Illustration** の略で、Vulkan を基盤にした、
 数学・アルゴリズム解説向けのインタラクティブなアニメーションエンジンを目指します。
 
-現在は M1 の決定的な2D scene evaluation、playback、Vulkan 1.3 renderer、GLFW preview、CPU/GPU smoke test が
-実装されています。PNG・動画出力、CLI、自動再ビルド、状態復元は未実装です。存在しないコマンドを利用可能と説明・実行
+現在は M2 まで実装され、決定的な2D scene evaluation、playback、GLFW preview、Vulkan 1.3 backend、VMA資源管理、
+同一draw passを使うheadless offscreen render、RGBA8 readback、単一frameのPNG capture CLI、CPU/GPU smoke testが利用できます。
+フレーム連番・動画出力、自動再ビルド、状態復元は未実装です。存在しないコマンドを利用可能と説明・実行
 しないでください。実装でコマンドを追加したら、本ファイルと利用者向け文書も更新してください。
 
 ## Product Contract
