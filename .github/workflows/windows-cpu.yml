@@ -1,0 +1,17 @@
+name: Windows CPU
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake --preset windows-cpu-debug
+      - name: Build
+        run: cmake --build --preset windows-cpu-debug
+      - name: Test
+        run: ctest --preset windows-cpu-debug

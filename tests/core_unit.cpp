@@ -1,5 +1,8 @@
 #include <akari/core/demo_scene.hpp>
+#include <akari/core/error.hpp>
 #include <akari/core/playback_controller.hpp>
+#include <akari/core/scene_session.hpp>
+#include <akari/core/tessellator2d.hpp>
 
 #include <algorithm>
 #include <array>
@@ -31,20 +34,16 @@ bool near(const float lhs, const float rhs, const float tolerance = 1.0e-5F)
 glm::vec2 moving_point_center(const akari::SceneFrame2D& frame)
 {
     constexpr std::size_t axes_vertices = 8;
-    constexpr std::size_t circle_vertices = akari::UnitCircleScene::circle_segments * 4;
+    constexpr std::size_t circle_vertices = akari::unit_circle_segments * 4;
     return frame.vertices.at(axes_vertices + circle_vertices).position;
 }
 
 akari::SceneFrame2D evaluate_at(const double time, const double frame_rate)
 {
-    akari::UnitCircleScene scene;
+    akari::SceneSession session{akari::make_unit_circle_scene()};
     akari::SceneFrame2D frame;
-    scene.evaluate(
-        {.time_seconds = time,
-         .frame_index = static_cast<std::uint64_t>(std::floor(time * frame_rate)),
-         .frame_rate = frame_rate,
-         .random_seed = 42},
-        frame);
+    (void)frame_rate;
+    akari::tessellate_2d(session.evaluate(akari::TimelineTime::from_seconds(time)), frame);
     return frame;
 }
 
@@ -89,8 +88,8 @@ void test_determinism()
 void test_mesh_validity()
 {
     const auto frame = evaluate_at(0.75, 60.0);
-    constexpr std::size_t expected_vertices = 8 + akari::UnitCircleScene::circle_segments * 4 + 33;
-    constexpr std::size_t expected_indices = 12 + akari::UnitCircleScene::circle_segments * 6 + 32 * 3;
+    constexpr std::size_t expected_vertices = 8 + akari::unit_circle_segments * 4 + 33;
+    constexpr std::size_t expected_indices = 12 + akari::unit_circle_segments * 6 + 32 * 3;
     check(frame.vertices.size() == expected_vertices, "expected vertex count");
     check(frame.indices.size() == expected_indices, "expected index count");
     check(frame.indices.size() % 3 == 0, "triangle index count");
@@ -125,6 +124,15 @@ void test_playback()
     check(playback.time_seconds() == 0.0, "paused playback");
 }
 
+void test_error_categories()
+{
+    const akari::AkariError error{akari::ErrorCategory::ShaderAsset, "missing shader"};
+    check(error.category() == akari::ErrorCategory::ShaderAsset, "error category retained");
+    check(std::string_view{error.what()} == "missing shader", "error message retained");
+    check(akari::to_string(error.category()) == "shader_asset", "error category formatting");
+    check(akari::to_string(akari::ErrorCategory::CommandLine) == "command_line", "command category formatting");
+}
+
 } // namespace
 
 int main()
@@ -133,6 +141,7 @@ int main()
     test_determinism();
     test_mesh_validity();
     test_playback();
+    test_error_categories();
 
     if (failures != 0) {
         std::cerr << failures << " core test checks failed\n";

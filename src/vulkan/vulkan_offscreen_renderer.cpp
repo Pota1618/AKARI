@@ -1,5 +1,7 @@
 #include <akari/vulkan/vulkan_offscreen_renderer.hpp>
 
+#include <akari/core/error.hpp>
+
 #include "vulkan_backend_internal.hpp"
 
 #include <array>
@@ -13,13 +15,17 @@ namespace akari {
 class VulkanOffscreenRenderer::Impl {
 public:
     explicit Impl(const VulkanRendererOptions options)
-        : context_({.options = options}), draw_pass_(context_), scheduler_(context_)
+        : context_({.options = options}),
+          draw_pass_(context_, vulkan_detail::resolve_shader_directory(options)),
+          scheduler_(context_)
     {
         const auto features = context_.physical_device().getFormatProperties(format_).optimalTilingFeatures;
         const auto required = vk::FormatFeatureFlagBits::eColorAttachment | vk::FormatFeatureFlagBits::eTransferSrc;
         if ((features & required) != required) {
-            throw std::runtime_error(
-                "GPU does not support VK_FORMAT_R8G8B8A8_SRGB as a color attachment and transfer source");
+            throw AkariError{
+                ErrorCategory::VulkanCapability,
+                "GPU " + std::string{context_.device_name()} +
+                    " does not support VK_FORMAT_R8G8B8A8_SRGB as a color attachment and transfer source"};
         }
     }
 
@@ -40,6 +46,7 @@ public:
         draw_pass_.record(
             *slot.command_buffer,
             slot.geometry,
+            frame.camera,
             {
                 .image = color_image_.image(),
                 .view = *color_view_,
@@ -73,6 +80,7 @@ public:
         slot.command_buffer.end();
 
         scheduler_.submit(slot);
+        update_statistics(slot);
         scheduler_.wait(slot);
         readback_.invalidate(byte_count);
         ImageRgba8 image{request.extent, std::vector<std::uint8_t>(byte_count)};
@@ -88,8 +96,21 @@ public:
     }
 
     [[nodiscard]] const char* device_name() const noexcept { return context_.device_name(); }
+    [[nodiscard]] RendererStatistics statistics() const noexcept { return statistics_; }
 
 private:
+    void update_statistics(const vulkan_detail::FrameSlot& slot) noexcept
+    {
+        ++statistics_.frames_submitted;
+        statistics_.last_vertex_bytes = static_cast<std::size_t>(slot.geometry.vertex_bytes());
+        statistics_.last_index_bytes = static_cast<std::size_t>(slot.geometry.index_bytes());
+        statistics_.total_upload_bytes += statistics_.last_vertex_bytes + statistics_.last_index_bytes;
+        statistics_.vertex_capacity_bytes = scheduler_.maximum_vertex_capacity();
+        statistics_.index_capacity_bytes = scheduler_.maximum_index_capacity();
+        statistics_.geometry_buffer_growths = scheduler_.geometry_buffer_growths();
+        statistics_.pipeline_count = draw_pass_.pipeline_count();
+    }
+
     void ensure_target(const RenderExtent extent, const std::size_t byte_count)
     {
         if (extent == extent_) {
@@ -125,6 +146,7 @@ private:
     RenderExtent extent_{};
     vk::Format format_{vk::Format::eR8G8B8A8Srgb};
     bool initialized_{};
+    RendererStatistics statistics_{};
 };
 
 VulkanOffscreenRenderer::VulkanOffscreenRenderer(const VulkanRendererOptions options)
@@ -149,6 +171,11 @@ std::size_t VulkanOffscreenRenderer::validation_error_count() const noexcept
 const char* VulkanOffscreenRenderer::device_name() const noexcept
 {
     return impl_->device_name();
+}
+
+RendererStatistics VulkanOffscreenRenderer::statistics() const noexcept
+{
+    return impl_->statistics();
 }
 
 } // namespace akari

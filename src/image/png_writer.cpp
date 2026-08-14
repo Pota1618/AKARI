@@ -1,5 +1,7 @@
 #include <akari/image/png_writer.hpp>
 
+#include <akari/core/error.hpp>
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
@@ -39,16 +41,16 @@ void write_png(const std::filesystem::path& path, const ImageRgba8& image)
             4,
             image.pixels.data(),
             stride) == 0) {
-        throw std::runtime_error("PNG encoding failed");
+        throw AkariError{ErrorCategory::ImageExport, "PNG encoding failed"};
     }
 
     std::ofstream output{path, std::ios::binary};
     if (!output) {
-        throw std::runtime_error("Unable to open PNG output: " + path.string());
+        throw AkariError{ErrorCategory::ImageExport, "Unable to open PNG output: " + path.string()};
     }
     output.write(reinterpret_cast<const char*>(encoded.data()), static_cast<std::streamsize>(encoded.size()));
     if (!output) {
-        throw std::runtime_error("Unable to write PNG output: " + path.string());
+        throw AkariError{ErrorCategory::ImageExport, "Unable to write PNG output: " + path.string()};
     }
 }
 

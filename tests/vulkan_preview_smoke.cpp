@@ -1,4 +1,6 @@
 #include <akari/core/demo_scene.hpp>
+#include <akari/core/scene_session.hpp>
+#include <akari/core/tessellator2d.hpp>
 #include <akari/vulkan/vulkan_offscreen_renderer.hpp>
 #include <akari/vulkan/vulkan_renderer.hpp>
 
@@ -41,17 +43,16 @@ int main()
 
         akari::VulkanRenderer renderer{window.get(), {.enable_validation = true}};
         akari::VulkanOffscreenRenderer offscreen_renderer{{.enable_validation = true}};
-        akari::UnitCircleScene scene;
+        if (renderer.statistics() != akari::RendererStatistics{} ||
+            offscreen_renderer.statistics() != akari::RendererStatistics{}) {
+            throw std::runtime_error("Renderer statistics were not initially zero");
+        }
+        akari::SceneSession session{akari::make_unit_circle_scene()};
         akari::SceneFrame2D frame;
         constexpr std::size_t smoke_frame_count = 8;
         for (std::size_t index = 0; index < smoke_frame_count; ++index) {
             const double time = static_cast<double>(index) / 60.0;
-            scene.evaluate(
-                {.time_seconds = time,
-                 .frame_index = index,
-                 .frame_rate = 60.0,
-                 .random_seed = 0},
-                frame);
+            akari::tessellate_2d(session.evaluate(akari::TimelineTime::from_seconds(time)), frame);
             renderer.draw(frame);
             if (index == 2 || index == 5) {
                 const auto image = offscreen_renderer.render(frame, {{128, 96}});
@@ -65,6 +66,11 @@ int main()
             glfwPollEvents();
         }
         renderer.wait_idle();
+        if (renderer.statistics().frames_submitted != smoke_frame_count ||
+            offscreen_renderer.statistics().frames_submitted != 2 ||
+            renderer.statistics().pipeline_count != 1 || offscreen_renderer.statistics().pipeline_count != 1) {
+            throw std::runtime_error("Preview and offscreen statistics are not independent");
+        }
         if (renderer.validation_error_count() != 0) {
             std::cerr << renderer.validation_error_count() << " Vulkan validation errors were reported\n";
             result = 2;

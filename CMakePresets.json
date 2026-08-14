@@ -16,12 +16,29 @@
         "CMAKE_CXX_STANDARD": "23",
         "CMAKE_CXX_STANDARD_REQUIRED": "ON"
       }
+    },
+    {
+      "name": "windows-cpu-debug",
+      "displayName": "Windows CPU-only Debug (Visual Studio 2022)",
+      "generator": "Visual Studio 17 2022",
+      "binaryDir": "${sourceDir}/build/windows-cpu-debug",
+      "architecture": "x64",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "23",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "AKARI_ENABLE_VULKAN": "OFF"
+      }
     }
   ],
   "buildPresets": [
     {
       "name": "windows-debug",
       "configurePreset": "windows-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-cpu-debug",
+      "configurePreset": "windows-cpu-debug",
       "configuration": "Debug"
     }
   ],
@@ -33,7 +50,19 @@
       "output": {
         "outputOnFailure": true
       }
+    },
+    {
+      "name": "windows-cpu-debug",
+      "configurePreset": "windows-cpu-debug",
+      "configuration": "Debug",
+      "filter": {
+        "include": {
+          "label": "cpu"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }
-

@@ -1,4 +1,7 @@
 #include <akari/core/demo_scene.hpp>
+#include <akari/core/error.hpp>
+#include <akari/core/scene_session.hpp>
+#include <akari/core/tessellator2d.hpp>
 #include <akari/image/png_writer.hpp>
 #include <akari/vulkan/vulkan_offscreen_renderer.hpp>
 
@@ -77,24 +80,29 @@ int main(const int argc, char** argv)
 {
     try {
         const auto options = parse_arguments(argc, argv);
-        akari::UnitCircleScene scene;
+        akari::SceneSession session{akari::make_unit_circle_scene()};
         akari::SceneFrame2D frame;
-        scene.evaluate(
-            {.time_seconds = options.time,
-             .frame_index = static_cast<std::uint64_t>(std::floor(options.time * 60.0)),
-             .frame_rate = 60.0,
-             .random_seed = 0},
-            frame);
+        akari::tessellate_2d(session.evaluate(akari::TimelineTime::from_seconds(options.time)), frame);
         akari::VulkanOffscreenRenderer renderer;
         const auto image = renderer.render(frame, {{options.width, options.height}});
         if (renderer.validation_error_count() != 0) {
-            throw std::runtime_error(
-                std::to_string(renderer.validation_error_count()) + " Vulkan validation errors were reported");
+            throw akari::AkariError{
+                akari::ErrorCategory::RenderSubmission,
+                std::to_string(renderer.validation_error_count()) + " Vulkan validation errors were reported"};
         }
         akari::write_png(options.output, image);
         std::cout << "Wrote " << options.width << 'x' << options.height << " PNG at t=" << options.time
                   << " using " << renderer.device_name() << ": " << options.output.string() << '\n';
         return 0;
+    } catch (const akari::AkariError& error) {
+        std::cerr << "akari_capture: [" << akari::to_string(error.category()) << "] " << error.what() << '\n'
+                  << "Usage: akari_capture --output <path.png> [--time <seconds>] [--width <pixels>] [--height <pixels>]\n";
+        return 1;
+    } catch (const std::invalid_argument& error) {
+        std::cerr << "akari_capture: [" << akari::to_string(akari::ErrorCategory::CommandLine) << "] "
+                  << error.what() << '\n'
+                  << "Usage: akari_capture --output <path.png> [--time <seconds>] [--width <pixels>] [--height <pixels>]\n";
+        return 1;
     } catch (const std::exception& error) {
         std::cerr << "akari_capture: " << error.what() << '\n'
                   << "Usage: akari_capture --output <path.png> [--time <seconds>] [--width <pixels>] [--height <pixels>]\n";

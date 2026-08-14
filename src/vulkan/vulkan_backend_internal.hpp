@@ -1,6 +1,6 @@
 #pragma once
 
-#include <akari/core/scene2d.hpp>
+#include <akari/core/render_data2d.hpp>
 #include <akari/image/image_rgba8.hpp>
 #include <akari/vulkan/vulkan_renderer.hpp>
 
@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <span>
@@ -126,6 +127,11 @@ public:
     [[nodiscard]] vk::Buffer vertex_buffer() const noexcept { return vertices_gpu_.buffer(); }
     [[nodiscard]] vk::Buffer index_buffer() const noexcept { return indices_gpu_.buffer(); }
     [[nodiscard]] std::uint32_t index_count() const noexcept { return index_count_; }
+    [[nodiscard]] vk::DeviceSize vertex_bytes() const noexcept { return vertex_bytes_; }
+    [[nodiscard]] vk::DeviceSize index_bytes() const noexcept { return index_bytes_; }
+    [[nodiscard]] vk::DeviceSize vertex_capacity() const noexcept { return vertices_gpu_.size(); }
+    [[nodiscard]] vk::DeviceSize index_capacity() const noexcept { return indices_gpu_.size(); }
+    [[nodiscard]] std::uint64_t growth_count() const noexcept { return growth_count_; }
 
 private:
     void ensure_capacity(vk::DeviceSize vertex_bytes, vk::DeviceSize index_bytes);
@@ -138,6 +144,7 @@ private:
     vk::DeviceSize vertex_bytes_{};
     vk::DeviceSize index_bytes_{};
     std::uint32_t index_count_{};
+    std::uint64_t growth_count_{};
 };
 
 struct RenderTarget2D {
@@ -152,9 +159,14 @@ struct RenderTarget2D {
 
 class SceneDrawPass2D {
 public:
-    explicit SceneDrawPass2D(VulkanContext& context);
+    SceneDrawPass2D(VulkanContext& context, const std::filesystem::path& shader_directory);
 
-    void record(vk::CommandBuffer command_buffer, const GeometryUpload& geometry, const RenderTarget2D& target);
+    void record(
+        vk::CommandBuffer command_buffer,
+        const GeometryUpload& geometry,
+        const Camera2D& camera,
+        const RenderTarget2D& target);
+    [[nodiscard]] std::size_t pipeline_count() const noexcept { return pipelines_.size(); }
 
 private:
     [[nodiscard]] const vk::raii::Pipeline& pipeline_for(vk::Format format);
@@ -186,6 +198,9 @@ public:
     void wait(FrameSlot& slot) const;
     void advance() noexcept;
     void wait_all() const;
+    [[nodiscard]] std::size_t maximum_vertex_capacity() const noexcept;
+    [[nodiscard]] std::size_t maximum_index_capacity() const noexcept;
+    [[nodiscard]] std::uint64_t geometry_buffer_growths() const noexcept;
 
 private:
     VulkanContext& context_;
@@ -195,5 +210,6 @@ private:
 };
 
 void validate_scene_frame(const SceneFrame2D& frame);
+[[nodiscard]] std::filesystem::path resolve_shader_directory(const VulkanRendererOptions& options);
 
 } // namespace akari::vulkan_detail

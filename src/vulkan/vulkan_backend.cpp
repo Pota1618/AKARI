@@ -1,10 +1,15 @@
 #define VMA_IMPLEMENTATION
 #include "vulkan_backend_internal.hpp"
 
+#include "platform/executable_directory.hpp"
+
+#include <akari/core/error.hpp>
+
 #include <glm/mat4x4.hpp>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -58,21 +63,23 @@ QueueFamilies find_queue_families(const vk::raii::PhysicalDevice& device, const 
     return result;
 }
 
-std::vector<std::uint32_t> read_spirv(const std::string& path)
+std::vector<std::uint32_t> read_spirv(const std::filesystem::path& path)
 {
     std::ifstream input{path, std::ios::ate | std::ios::binary};
     if (!input) {
-        throw std::runtime_error("Unable to open SPIR-V shader asset: " + path);
+        throw AkariError{ErrorCategory::ShaderAsset, "Unable to open SPIR-V shader asset: " + path.string()};
     }
     const auto byte_count = input.tellg();
     if (byte_count <= 0 || byte_count % 4 != 0) {
-        throw std::runtime_error("Invalid SPIR-V shader size: " + path);
+        throw AkariError{
+            ErrorCategory::ShaderAsset,
+            "SPIR-V shader is empty or is not 4-byte aligned: " + path.string()};
     }
     std::vector<std::uint32_t> code(static_cast<std::size_t>(byte_count) / sizeof(std::uint32_t));
     input.seekg(0);
     input.read(reinterpret_cast<char*>(code.data()), byte_count);
     if (!input) {
-        throw std::runtime_error("Unable to read SPIR-V shader asset: " + path);
+        throw AkariError{ErrorCategory::ShaderAsset, "Unable to read SPIR-V shader asset: " + path.string()};
     }
     return code;
 }
@@ -139,7 +146,9 @@ VulkanContext::VulkanContext(VulkanContextCreateInfo create_info)
     if (create_info.create_surface) {
         const auto raw_surface = create_info.create_surface(static_cast<VkInstance>(*instance_));
         if (raw_surface == VK_NULL_HANDLE) {
-            throw std::runtime_error("Surface factory returned a null Vulkan surface");
+            throw AkariError{
+                ErrorCategory::VulkanCapability,
+                "Surface factory returned a null Vulkan surface"};
         }
         surface_ = vk::raii::SurfaceKHR{instance_, raw_surface};
     }
@@ -202,7 +211,9 @@ VulkanContext::VulkanContext(VulkanContextCreateInfo create_info)
         }
     }
     if (!*physical_device_) {
-        throw std::runtime_error("No suitable Vulkan 1.3 GPU was found.\n" + diagnostics.str());
+        throw AkariError{
+            ErrorCategory::VulkanCapability,
+            "No suitable Vulkan 1.3 GPU was found.\n" + diagnostics.str()};
     }
     if (!diagnostics.str().empty()) {
         std::clog << diagnostics.str();
@@ -240,7 +251,9 @@ VulkanContext::VulkanContext(VulkanContextCreateInfo create_info)
     allocator_info.vulkanApiVersion = VK_API_VERSION_1_3;
     const auto result = vmaCreateAllocator(&allocator_info, &allocator_);
     if (result != VK_SUCCESS) {
-        throw std::runtime_error("vmaCreateAllocator failed with VkResult " + std::to_string(result));
+        throw AkariError{
+            ErrorCategory::GpuAllocation,
+            "vmaCreateAllocator failed on " + device_name_ + " with VkResult " + std::to_string(result)};
     }
 }
 
@@ -270,7 +283,10 @@ AllocatedBuffer::AllocatedBuffer(
     VmaAllocationInfo created_info{};
     const auto result = vmaCreateBuffer(allocator_, &buffer_info, &allocation_info, &buffer_, &allocation_, &created_info);
     if (result != VK_SUCCESS) {
-        throw std::runtime_error("VMA buffer allocation failed with VkResult " + std::to_string(result));
+        throw AkariError{
+            ErrorCategory::GpuAllocation,
+            "VMA buffer allocation of " + std::to_string(size) + " bytes failed with VkResult " +
+                std::to_string(result)};
     }
     mapped_data_ = created_info.pMappedData;
 }
@@ -314,14 +330,14 @@ void AllocatedBuffer::reset() noexcept
 void AllocatedBuffer::flush(const vk::DeviceSize size)
 {
     if (vmaFlushAllocation(allocator_, allocation_, 0, size) != VK_SUCCESS) {
-        throw std::runtime_error("Unable to flush mapped Vulkan allocation");
+        throw AkariError{ErrorCategory::GpuAllocation, "Unable to flush mapped Vulkan allocation"};
     }
 }
 
 void AllocatedBuffer::invalidate(const vk::DeviceSize size)
 {
     if (vmaInvalidateAllocation(allocator_, allocation_, 0, size) != VK_SUCCESS) {
-        throw std::runtime_error("Unable to invalidate mapped Vulkan allocation");
+        throw AkariError{ErrorCategory::GpuAllocation, "Unable to invalidate mapped Vulkan allocation"};
     }
 }
 
@@ -347,7 +363,9 @@ AllocatedImage::AllocatedImage(
     allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     const auto result = vmaCreateImage(allocator_, &image_info, &allocation_info, &image_, &allocation_, nullptr);
     if (result != VK_SUCCESS) {
-        throw std::runtime_error("VMA image allocation failed with VkResult " + std::to_string(result));
+        throw AkariError{
+            ErrorCategory::GpuAllocation,
+            "VMA image allocation failed with VkResult " + std::to_string(result)};
     }
 }
 
@@ -383,6 +401,10 @@ void AllocatedImage::reset() noexcept
 
 void validate_scene_frame(const SceneFrame2D& frame)
 {
+    if (!std::isfinite(frame.camera.center.x) || !std::isfinite(frame.camera.center.y) ||
+        !std::isfinite(frame.camera.vertical_span) || frame.camera.vertical_span <= 0.0F) {
+        throw std::invalid_argument("Scene frame camera must be finite with a positive vertical span");
+    }
     if (frame.vertices.empty() || frame.indices.empty()) {
         throw std::invalid_argument("Scene frame geometry must not be empty");
     }
@@ -423,12 +445,14 @@ void GeometryUpload::ensure_capacity(const vk::DeviceSize vertex_bytes, const vk
         vertices_staging_ = AllocatedBuffer{allocator_, capacity, vk::BufferUsageFlagBits::eTransferSrc, true};
         vertices_gpu_ = AllocatedBuffer{
             allocator_, capacity, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer, false};
+        ++growth_count_;
     }
     if (indices_staging_.size() < index_bytes) {
         const auto capacity = growing_capacity(index_bytes);
         indices_staging_ = AllocatedBuffer{allocator_, capacity, vk::BufferUsageFlagBits::eTransferSrc, true};
         indices_gpu_ = AllocatedBuffer{
             allocator_, capacity, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer, false};
+        ++growth_count_;
     }
 }
 
@@ -458,10 +482,21 @@ void GeometryUpload::record(const vk::CommandBuffer command_buffer) const
     command_buffer.pipelineBarrier2(dependency);
 }
 
-SceneDrawPass2D::SceneDrawPass2D(VulkanContext& context) : context_(context)
+std::filesystem::path resolve_shader_directory(const VulkanRendererOptions& options)
 {
-    vertex_shader_ = read_spirv(std::string{AKARI_SHADER_DIR} + "/flat_color.vert.spv");
-    fragment_shader_ = read_spirv(std::string{AKARI_SHADER_DIR} + "/flat_color.frag.spv");
+    if (!options.shader_directory.empty()) {
+        return std::filesystem::absolute(options.shader_directory).lexically_normal();
+    }
+    return (platform::executable_directory() / "assets" / "shaders").lexically_normal();
+}
+
+SceneDrawPass2D::SceneDrawPass2D(
+    VulkanContext& context,
+    const std::filesystem::path& shader_directory)
+    : context_(context)
+{
+    vertex_shader_ = read_spirv(shader_directory / "flat_color.vert.spv");
+    fragment_shader_ = read_spirv(shader_directory / "flat_color.frag.spv");
     vk::PushConstantRange push_constants;
     push_constants.setStageFlags(vk::ShaderStageFlagBits::eVertex).setOffset(0).setSize(sizeof(glm::mat4));
     vk::PipelineLayoutCreateInfo layout_info;
@@ -528,6 +563,7 @@ const vk::raii::Pipeline& SceneDrawPass2D::pipeline_for(const vk::Format format)
 void SceneDrawPass2D::record(
     const vk::CommandBuffer command_buffer,
     const GeometryUpload& geometry,
+    const Camera2D& camera,
     const RenderTarget2D& target)
 {
     geometry.record(command_buffer);
@@ -567,11 +603,13 @@ void SceneDrawPass2D::record(
     command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline_for(target.format));
     command_buffer.bindVertexBuffers(0, geometry.vertex_buffer(), vk::DeviceSize{0});
     command_buffer.bindIndexBuffer(geometry.index_buffer(), 0, vk::IndexType::eUint32);
-    const float half_height = 1.5F;
+    const float half_height = camera.vertical_span * 0.5F;
     const float half_width = half_height * static_cast<float>(target.extent.width) / static_cast<float>(target.extent.height);
     glm::mat4 view_projection{1.0F};
     view_projection[0][0] = 1.0F / half_width;
     view_projection[1][1] = -1.0F / half_height;
+    view_projection[3][0] = -camera.center.x / half_width;
+    view_projection[3][1] = camera.center.y / half_height;
     command_buffer.pushConstants<glm::mat4>(
         *pipeline_layout_, vk::ShaderStageFlagBits::eVertex, 0, view_projection);
     command_buffer.drawIndexed(geometry.index_count(), 1, 0, 0, 0);
@@ -621,7 +659,7 @@ FrameSlot& FrameScheduler::begin_frame()
 {
     auto& slot = frames_.at(current_frame_);
     if (context_.device().waitForFences(*slot.fence, true, std::numeric_limits<std::uint64_t>::max()) != vk::Result::eSuccess) {
-        throw std::runtime_error("Timed out waiting for a Vulkan frame fence");
+        throw AkariError{ErrorCategory::RenderSubmission, "Timed out waiting for a Vulkan frame fence"};
     }
     slot.command_buffer.reset();
     return slot;
@@ -643,7 +681,7 @@ void FrameScheduler::submit(
 void FrameScheduler::wait(FrameSlot& slot) const
 {
     if (context_.device().waitForFences(*slot.fence, true, std::numeric_limits<std::uint64_t>::max()) != vk::Result::eSuccess) {
-        throw std::runtime_error("Timed out waiting for offscreen rendering");
+        throw AkariError{ErrorCategory::RenderSubmission, "Timed out waiting for offscreen rendering"};
     }
 }
 
@@ -657,8 +695,35 @@ void FrameScheduler::wait_all() const
         fences.push_back(*frame.fence);
     }
     if (context_.device().waitForFences(fences, true, std::numeric_limits<std::uint64_t>::max()) != vk::Result::eSuccess) {
-        throw std::runtime_error("Timed out waiting for Vulkan frames");
+        throw AkariError{ErrorCategory::RenderSubmission, "Timed out waiting for Vulkan frames"};
     }
+}
+
+std::size_t FrameScheduler::maximum_vertex_capacity() const noexcept
+{
+    std::size_t result{};
+    for (const auto& frame : frames_) {
+        result = std::max(result, static_cast<std::size_t>(frame.geometry.vertex_capacity()));
+    }
+    return result;
+}
+
+std::size_t FrameScheduler::maximum_index_capacity() const noexcept
+{
+    std::size_t result{};
+    for (const auto& frame : frames_) {
+        result = std::max(result, static_cast<std::size_t>(frame.geometry.index_capacity()));
+    }
+    return result;
+}
+
+std::uint64_t FrameScheduler::geometry_buffer_growths() const noexcept
+{
+    std::uint64_t result{};
+    for (const auto& frame : frames_) {
+        result += frame.geometry.growth_count();
+    }
+    return result;
 }
 
 } // namespace akari::vulkan_detail

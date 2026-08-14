@@ -1,6 +1,6 @@
 #pragma once
 
-#include <akari/core/scene2d.hpp>
+#include <akari/core/render_data2d.hpp>
 #include <akari/image/image_rgba8.hpp>
 #include <akari/vulkan/vulkan_renderer.hpp>
 
@@ -30,6 +30,7 @@ public:
 
     [[nodiscard]] std::size_t validation_error_count() const noexcept;
     [[nodiscard]] const char* device_name() const noexcept;
+    [[nodiscard]] RendererStatistics statistics() const noexcept;
 
 private:
     class Impl;

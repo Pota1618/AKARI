@@ -1,5 +1,7 @@
 #include <akari/vulkan/vulkan_renderer.hpp>
 
+#include <akari/core/error.hpp>
+
 #include "vulkan_backend_internal.hpp"
 
 #define GLFW_INCLUDE_NONE
@@ -25,12 +27,14 @@ vulkan_detail::VulkanContextCreateInfo context_create_info(
         throw std::invalid_argument("VulkanRenderer requires a GLFW window");
     }
     if (glfwVulkanSupported() != GLFW_TRUE) {
-        throw std::runtime_error("GLFW reports that Vulkan is unavailable");
+        throw AkariError{ErrorCategory::VulkanCapability, "GLFW reports that Vulkan is unavailable"};
     }
     std::uint32_t extension_count{};
     const auto extensions = glfwGetRequiredInstanceExtensions(&extension_count);
     if (extensions == nullptr || extension_count == 0) {
-        throw std::runtime_error("GLFW did not provide Vulkan surface extensions");
+        throw AkariError{
+            ErrorCategory::VulkanCapability,
+            "GLFW did not provide Vulkan surface extensions"};
     }
     return {
         .options = options,
@@ -39,7 +43,9 @@ vulkan_detail::VulkanContextCreateInfo context_create_info(
             VkSurfaceKHR surface{};
             const auto result = glfwCreateWindowSurface(instance, window, nullptr, &surface);
             if (result != VK_SUCCESS) {
-                throw std::runtime_error("glfwCreateWindowSurface failed with VkResult " + std::to_string(result));
+                throw AkariError{
+                    ErrorCategory::VulkanCapability,
+                    "glfwCreateWindowSurface failed with VkResult " + std::to_string(result)};
             }
             return surface;
         },
@@ -61,7 +67,7 @@ public:
     Impl(GLFWwindow* window, const VulkanRendererOptions options)
         : window_(window),
           context_(context_create_info(window, options)),
-          draw_pass_(context_),
+          draw_pass_(context_, vulkan_detail::resolve_shader_directory(options)),
           scheduler_(context_, frames_in_flight)
     {
         image_available_.reserve(frames_in_flight);
@@ -97,7 +103,9 @@ public:
             if (context_.device().waitForFences(
                     image_fences_.at(image_index), true, std::numeric_limits<std::uint64_t>::max()) !=
                 vk::Result::eSuccess) {
-                throw std::runtime_error("Timed out waiting for a Vulkan swapchain image");
+                throw AkariError{
+                    ErrorCategory::RenderSubmission,
+                    "Timed out waiting for a Vulkan swapchain image"};
             }
         }
         image_fences_.at(image_index) = *slot.fence;
@@ -108,6 +116,7 @@ public:
         draw_pass_.record(
             *slot.command_buffer,
             slot.geometry,
+            frame.camera,
             {
                 .image = swapchain_images_.at(image_index),
                 .view = *swapchain_views_.at(image_index),
@@ -131,6 +140,7 @@ public:
             .setStageMask(vk::PipelineStageFlagBits2::eAllCommands)
             .setDeviceIndex(0);
         scheduler_.submit(slot, std::span{&wait_info, 1}, std::span{&signal_info, 1});
+        update_statistics(slot);
 
         const vk::SwapchainKHR raw_swapchain = *swapchain_;
         const vk::Semaphore raw_render_finished = *render_finished_.at(image_index);
@@ -164,8 +174,21 @@ public:
     }
 
     [[nodiscard]] const char* device_name() const noexcept { return context_.device_name(); }
+    [[nodiscard]] RendererStatistics statistics() const noexcept { return statistics_; }
 
 private:
+    void update_statistics(const vulkan_detail::FrameSlot& slot) noexcept
+    {
+        ++statistics_.frames_submitted;
+        statistics_.last_vertex_bytes = static_cast<std::size_t>(slot.geometry.vertex_bytes());
+        statistics_.last_index_bytes = static_cast<std::size_t>(slot.geometry.index_bytes());
+        statistics_.total_upload_bytes += statistics_.last_vertex_bytes + statistics_.last_index_bytes;
+        statistics_.vertex_capacity_bytes = scheduler_.maximum_vertex_capacity();
+        statistics_.index_capacity_bytes = scheduler_.maximum_index_capacity();
+        statistics_.geometry_buffer_growths = scheduler_.geometry_buffer_growths();
+        statistics_.pipeline_count = draw_pass_.pipeline_count();
+    }
+
     vk::Extent2D choose_extent(const vk::SurfaceCapabilitiesKHR& capabilities) const
     {
         if (capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max()) {
@@ -199,7 +222,10 @@ private:
         const auto formats = context_.physical_device().getSurfaceFormatsKHR(*context_.surface());
         const auto present_modes = context_.physical_device().getSurfacePresentModesKHR(*context_.surface());
         if (formats.empty() || present_modes.empty()) {
-            throw std::runtime_error("Vulkan surface has no usable formats or present modes");
+            throw AkariError{
+                ErrorCategory::VulkanCapability,
+                "Vulkan surface has no usable formats or present modes on " +
+                    std::string{context_.device_name()}};
         }
         const auto surface_format = choose_surface_format(formats);
         const auto extent = choose_extent(capabilities);
@@ -276,6 +302,7 @@ private:
     vk::Extent2D swapchain_extent_{};
     vk::Format swapchain_format_{vk::Format::eUndefined};
     std::size_t current_frame_{};
+    RendererStatistics statistics_{};
 };
 
 VulkanRenderer::VulkanRenderer(GLFWwindow* window, const VulkanRendererOptions options)
@@ -296,5 +323,7 @@ std::size_t VulkanRenderer::validation_error_count() const noexcept
 }
 
 const char* VulkanRenderer::device_name() const noexcept { return impl_->device_name(); }
+
+RendererStatistics VulkanRenderer::statistics() const noexcept { return impl_->statistics(); }
 
 } // namespace akari
