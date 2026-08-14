@@ -8,21 +8,19 @@
 AKARI は **Animation Kernel for Algorithmic Rendering & Illustration** の略で、Vulkan を基盤にした、
 数学・アルゴリズム解説向けのインタラクティブなアニメーションエンジンを目指します。
 
-現在は M3 まで実装され、dimension-neutral な scene/session/snapshot、`Canvas2D`、stable `NodeId`、型付き property と
-非破壊 take、semantic drag recording、120 Hz fixed-step simulation、Unit Circle／Spring Mass preview、Vulkan offscreen PNG、
-画像回帰、CPU-only CI が利用できます。3D、serialization、simulation checkpoint、フレーム連番・動画出力、自動再ビルド、
-状態復元は未実装です。存在しないコマンドを利用可能と説明・実行
-しないでください。実装でコマンドを追加したら、本ファイルと利用者向け文書も更新してください。
+現在は M3 まで実装され、dimension-neutral な scene/session/snapshot、`Canvas2D`、stable `NodeId`、型付き property、
+非破壊 take、semantic drag recording、120 Hz fixed-step simulation、Unit Circle／Spring Mass preview、offscreen PNG、
+画像回帰、CPU-only CI が利用できます。3D、serialization、simulation checkpoint、動画出力、自動再ビルド、状態復元は
+未実装です。存在しないコマンドを利用可能と説明・実行せず、追加時は本ファイルと利用者向け文書も更新してください。
 
 ## Product Contract
 
 - レンダリングコアと第一級のシーン記述 API は C++23 で実装します。
-- GPU バックエンドは Vulkan とします。拡張可能な境界は保ちますが、初期実装で複数 GPU API は不要です。
+- GPU バックエンドは Vulkan とします。拡張境界は保ちますが、初期実装で複数 GPU API は不要です。
 - Windows を最初の正式対象とします。ただし、Win32 固有処理を `scene`、`timeline`、数学処理、または
   バックエンド非依存の描画データへ漏らしてはいけません。Linux/macOS への移植を妨げない境界を保ってください。
 - ライブプレビューは、再生、一時停止、任意時刻へのシーク、カメラ操作、マウス入力、キー入力を扱います。
-- シーンソースの変更時は、外部の preview host が増分ビルドを行い、preview process を再起動します。
-  初期版で DLL のプロセス内ホットリロードや安定したプラグイン ABI を要求しません。
+- 将来は外部 preview host が増分ビルド後に process を再起動します。初期版で DLL hot reload や安定 ABI は要求しません。
 - 再起動時は可能な限り scene identifier、timeline time、再生状態、記録済み入力を復元します。対象シーンや
   復元対象がなくなった場合は、理由を明示する診断を出し、安全にシーン先頭へ戻してください。
 - 同じ scene evaluation からライブ表示、PNG 静止画、フレーム連番、FFmpeg 動画を生成します。preview と
@@ -78,9 +76,8 @@ AKARI は **Animation Kernel for Algorithmic Rendering & Illustration** の略�
 
 ## Toolchain and Workflow
 
-標準ツールチェーンは C++23、CMake Presets、Visual Studio 2022 generator とします。Windows の基準コンパイラは
-MSVC とし、compiler-specific extension は隔離して標準 C++ の代替を説明してください。依存管理は構成を単純にするため
-CMake `FetchContent` を使い、Ninja と vcpkg を前提にしません。
+標準は C++23、CMake Presets、Visual Studio 2022/MSVC、CMake `FetchContent` とし、Ninja と vcpkg は前提にしません。
+compiler-specific extension は隔離し、標準 C++ の代替を説明してください。
 
 標準コマンドは次のとおりです。
 
@@ -90,15 +87,11 @@ cmake --build --preset windows-debug
 ctest --preset windows-debug
 ```
 
-CI とローカル開発で同じ入口を使ってください。
-
 - 作業開始時に `README.md`、本ファイル、対象ディレクトリにある追加の `AGENTS.md`、現在の差分を確認します。
 - ユーザーの既存変更を保持し、依頼外の整形、名前変更、生成物更新を混ぜないでください。
-- build output、download cache、render output、動画、一時 asset を source tree の追跡対象へ誤って追加しないでください。
-- dependency は `FetchContent_Declare` の release tag または commit で固定します。追加時は用途、採用しない代替案、
-  license、Windows と将来の Linux/macOS への影響、binary size/build time への影響を記録してください。
-- formatter、linter、static analyzer はリポジトリ設定が存在する場合だけその設定を使います。設定なしで大規模な
-  機械的書き換えを行わないでください。
+- build/download/render output、動画、一時 asset を追跡対象へ追加しないでください。
+- dependency は tag/commit で固定し、用途、代替案、license、移植性、binary size/build time の影響を記録します。
+- formatter 等は既存設定だけを使い、設定なしで大規模な機械的書き換えを行わないでください。
 - 変更はレビュー可能な単位に保ち、振る舞いを変える変更と純粋なリファクタリングを可能な限り分離します。
 
 ## Testing and Definition of Done
@@ -116,6 +109,21 @@ CI とローカル開発で同じ入口を使ってください。
 GPU、SDK、FFmpeg などがなく実行できない検証は、成功したものとして扱わず、未実行の理由と残るリスクを明記してください。
 バグ修正には、可能な限り修正前に失敗し修正後に成功する回帰テストを追加します。
 
+## Interactive Preview Debugging with Computer Use
+
+Computer Use は常時必須ではなく、CPU/GPU test 後に drag、focus、keyboard、resize、最小化復帰、mode/take 表示など、
+実ウィンドウでしか確認しにくい preview の受け入れを再現する場合に使います。
+
+- `computer-use` skill と指定された文書を先に読み、Windows操作は`node_repl`の`@oai/sky`だけで行います。独自helper、
+  PowerShell UI Automation、terminal UIを混ぜません。
+- build済み`.exe`を明示pathから起動し、返されたprocess/windowから対象を一つに絞ります。観測後は一操作だけ行って再観測し、
+  古い座標、screenshot id、element indexを再利用しません。候補が複数なら操作を止めます。
+- Spring Massではplay/pause、Edit/Record、drag、take、resize、最小化復帰、終了を確認し、起動したpreviewを閉じます。
+- CTest、determinism test、Vulkan validation、画像回帰の代替にしません。detachしたGUIのUI smokeとvalidation結果を分けます。
+- capture待機による`steady_clock`の飛びや、拡張キーだけが注入されない場合があります。手動操作とcontroller testで比較します。
+- 利用不能なら手動項目を提示して未検証と報告します。runtime pathの`EPERM lstat`はsandbox/elevationを確認します。
+  `sandbox = "unelevated"`は動作実績がありますが、設定変更はユーザーの許可なく行いません。
+
 ## Code Review Rules
 
 レビューでは特に次を指摘してください。
@@ -126,16 +134,10 @@ GPU、SDK、FFmpeg などがなく実行できない検証は、成功したも�
 - Vulkan handle の二重破棄、親より長生きする子 resource、in-flight resource の早期再利用、同期不足。
 - render loop 上の毎フレーム allocation、同期 I/O、無条件 GPU wait、shader/pipeline 再生成。
 - seek、resize、device loss、build failure、scene removal、状態復元失敗を silent に無視する処理。
-- public API の所有権・単位・失敗条件の曖昧さ、サンプルまたは回帰テストの欠落。
-- license や移植性を確認していない dependency、参照実装からの出典不明なコード・asset。
+- public API の所有権・単位・失敗条件、サンプル・回帰テストの欠落。
+- license・移植性未確認の dependency、参照実装からの出典不明なコード・asset。
 
 ## Reference Projects and Licensing
 
-- [SwapTube](https://github.com/2swap/swaptube) の state dependency、時間単位、事前 smoke test の考え方を参考にします。
-  SwapTube は選択した C++ project を実行ファイルへ再コンパイルしてからテスト・レンダーする方式です。AKARI は
-  この堅実な build/run 境界を参考にしつつ、ファイル監視、自動増分 build、preview process の状態復元を加えます。
-- [ManimGL](https://github.com/3b1b/manim) の programmatic scene、ライブウィンドウ、対話的な制作ループを参考にします。
-
-参照プロジェクトは設計上の着想を得るための資料です。コードや asset をコピー・移植する場合は、依頼の範囲、原著作物の
-license、attribution、AKARI の配布条件との互換性を先に確認してください。出典不明の実装を持ち込まず、可能な限り
-AKARI の契約とテストから独自に実装してください。
+[SwapTube](https://github.com/2swap/swaptube) のstate/build境界と、[ManimGL](https://github.com/3b1b/manim) のライブ制作体験を
+参考にします。移植時はlicense、attribution、配布条件を確認し、出典不明のコード・assetを持ち込まないでください。
